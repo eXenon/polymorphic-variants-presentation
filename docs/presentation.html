@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+
+    <title>Polymorphic Variants</title>
+    <link rel="stylesheet" href="./css/reveal.css" />
+    <link rel="stylesheet" href="./css/theme/black.css" id="theme" />
+    <link rel="stylesheet" href="./css/highlight/zenburn.css" />
+    <link rel="stylesheet" href="./css/print/paper.css" type="text/css" media="print" />
+    <link rel="stylesheet" href="./assets/custom.css" />
+
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides"><section  data-markdown><script type="text/template">
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
+<h1>Polymorphic Variants considered harmful</h1>
+</script></section><section  data-markdown><script type="text/template">
+<small>
+Side note : the first «X considered harmful» was presented in 1968 by Dijkstra with <b>Go To Statements considered harmful</b>
+</small>
+</script></section><section  data-markdown><script type="text/template">
+### What are Polymorphic Variants?
+</script></section><section  data-markdown><script type="text/template">
+They are generalized, more dynamic, variants :
+
+```
+type a = [ `A | `B ]
+```
+
+- They can have a payload
+- They don't have to be declared beforhand
+</script></section><section  data-markdown><script type="text/template">
+```
+let f = function
+ | `A -> "A"
+ | `B -> "B"
+ | `C -> "C"
+```
+</script></section><section  data-markdown><script type="text/template">
+*Type signatures*
+- `[ 'A ]` = «exactly 'A»
+- `[ 'A | 'B ]` = «'A or 'B»
+- `[< 'A | 'B ]` = «'A or 'B or less»
+- `[> 'A | 'B ]` = «'A or 'B or more»
+</script></section><section  data-markdown><script type="text/template">
+*Polymorphic Variants can be nested*
+
+```
+type a = [ `A | `B ]
+type b = [ a | `C ]
+type c = [ `D ]
+type d = [ b | c ]
+```
+</script></section><section  data-markdown><script type="text/template">
+### Example : Caqti_error.t
+</script></section><section  data-markdown><script type="text/template">
+```
+type call = [
+| `Encode_rejected of coding_error
+| `Encode_failed of coding_error
+| `Request_rejected of query_error
+| `Request_failed of query_error
+| `Response_rejected of query_error
+]
+
+type retrieve = [
+| `Decode_rejected of coding_error
+| `Response_failed of query_error
+| `Response_rejected of query_error
+]
+
+type call_or_retrieve = [
+| call
+| retrieve
+]
+
+type transact = [
+| call
+| retrieve
+]
+
+type load = [
+| `Load_rejected of load_error
+| `Load_failed of load_error
+]
+
+type connect = [
+| `Connect_rejected of connection_error
+| `Connect_failed of connection_error
+| `Post_connect of call_or_retrieve
+]
+
+type load_or_connect = [
+| load
+| connect
+]
+
+type t = [
+| load
+| connect
+| call
+| retrieve
+]
+```
+</script></section><section  data-markdown><script type="text/template">
+### A few more examples
+</script></section><section  data-markdown><script type="text/template">
+```
+let f = function
+ | `A -> "A"
+ | `B -> "B"
+ | _ -> "?"
+
+val f : [> `A | `B ] -> string
+```
+</script></section><section  data-markdown><script type="text/template">
+```
+val f : [< `A | `B ] list -> string
+
+val l : [ `A ] list
+```
+</script></section><section  data-markdown><script type="text/template">
+### And now for the tricky parts
+</script></section><section  data-markdown><script type="text/template">
+```
+type a = [ `A of int ]
+
+let b ( l : [< `A ] ) : string =
+  match l with
+  | `A -> "A"
+```
+
+This is fine. And you will have two different types : one *a* and one *'A*.
+</script></section><section  data-markdown><script type="text/template">
+```
+let a = function
+  | `A s -> s
+  | `B -> "B"
+
+let b = function
+  | `A -> "A"
+  | `B s -> s
+```
+</script></section><section  data-markdown><script type="text/template">
+Pattern matching does not coerce the type. You have to be explicit about it.
+
+```
+type a = [ `A ]
+type b = [ a | `B ]
+
+let a_to_string = function
+  | `A -> "A"
+
+let b_to_string (v : [< `A | `B ]) =
+  match v with
+  | `A -> a_to_string v
+  | `B -> "B"
+```
+
+This does not work.
+</script></section><section  data-markdown><script type="text/template">
+```
+type a = [ `A ]
+type b = [ a | `B ]
+
+let a_to_string = function
+  | `A -> "A"
+
+let b_to_string (v : [< `A | `B ]) =
+  match v with
+  | #a as x -> a_to_string x
+  | ( `A ) as x -> a_to_string x (** Two ways to write this **)
+  | `B -> "B"
+```
+</script></section><section  data-markdown><script type="text/template">
+Never use catch-all pattern matching with polymorphic variants. Bad things may happen :
+
+```
+type a = [ `Add1 | `Add2 ]
+
+let f (v : [> a ]) : string = function
+  | `Add1 -> "A"
+  | `Add2 -> "B"
+  | _ -> "Error"
+  
+f `Addl (** here there is an L instead of a 1, but it will still compile and run **)
+```
+</script></section><section  data-markdown><script type="text/template">
+Let's define lists with stuff in them :
+```
+let l = [ `A; `B ]
+>>> [> `A | `B ] list = [`A; `B]
+```
+
+The compiler assumes a non-strict type.
+This means this works :
+```
+let l2 = `C::l;;
+>>> [> `A | `B | `C ] list = [`C; `A; `B]
+```
+</script></section><section  data-markdown><script type="text/template">
+But we can force a stricter type :
+```
+let l : [< `A | `B ] = [`A; `B];;
+>>> [ `A | `B ] list = [`A; `B]
+```
+
+This means this does no longer work :
+```
+let l2 = `C::l;;
+Error: This expression has type [ `A | `B ] list
+       but an expression was expected of type [> `C ] list
+       The first variant type does not allow tag(s) `C
+```
+</script></section><section  data-markdown><script type="text/template">
+Sometimes, the compiler will ignore your type constraints.
+The following compiles just fine when in an mli :
+```
+let a (v : [ `I ]) : string =
+  match a with
+  | `I -> "I"
+  | _ -> "?"
+
+let b = a `J
+```
+</script></section><section  data-markdown><script type="text/template">
+## Conclusion
+</script></section><section  data-markdown><script type="text/template">
+Mostly don't.
+
+<small>And if you have to : fall back to tinkering in a utop session</small>
+</script></section></div>
+    </div>
+
+    <script src="./js/reveal.js"></script>
+
+    <script>
+      function extend() {
+        var target = {};
+        for (var i = 0; i < arguments.length; i++) {
+          var source = arguments[i];
+          for (var key in source) {
+            if (source.hasOwnProperty(key)) {
+              target[key] = source[key];
+            }
+          }
+        }
+        return target;
+      }
+
+      // Optional libraries used to extend on reveal.js
+      var deps = [
+        { src: './plugin/markdown/marked.js', condition: function() { return !!document.querySelector('[data-markdown]'); } },
+        { src: './plugin/markdown/markdown.js', condition: function() { return !!document.querySelector('[data-markdown]'); } },
+        { src: './plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+        { src: './plugin/zoom-js/zoom.js', async: true },
+        { src: './plugin/notes/notes.js', async: true },
+        { src: './plugin/math/math.js', async: true }
+      ];
+
+      // default options to init reveal.js
+      var defaultOptions = {
+        controls: true,
+        progress: true,
+        history: true,
+        center: true,
+        transition: 'default', // none/fade/slide/convex/concave/zoom
+        dependencies: deps
+      };
+
+      // options from URL query string
+      var queryOptions = Reveal.getQueryHash() || {};
+
+      var options = extend(defaultOptions, {"transition":"none","slideNumber":true}, queryOptions);
+    </script>
+
+
+    <script>
+      Reveal.initialize(options);
+    </script>
+  </body>
+</html>
